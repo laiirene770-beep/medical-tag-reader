@@ -3,80 +3,157 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>輔大醫院設備標籤辨識</title>
+  <title>輔大醫院設備標籤批次辨識</title>
   <style>
-    body { font-family: sans-serif; max-width: 500px; margin: 40px auto; padding: 0 20px; }
-    .box { border: 1px solid #ccc; padding: 20px; border-radius: 8px; }
-    .field { margin: 15px 0; }
-    label { display: block; font-weight: bold; margin-bottom: 5px; }
-    input[type="text"] { width: 100%; padding: 8px; box-sizing: border-box; }
-    button { padding: 10px 20px; background: #0070f3; color: white; border: none; border-radius: 4px; cursor: pointer; }
-    #preview { max-width: 100%; margin-top: 10px; display: none; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 30px auto; padding: 0 20px; color: #333; }
+    .card { border: 1px solid #e1e4e8; padding: 24px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    .controls { display: flex; gap: 10px; align-items: center; margin-top: 15px; flex-wrap: wrap; }
+    input[type="file"] { padding: 8px; border: 1px dashed #0070f3; border-radius: 6px; background: #f8faff; }
+    button { padding: 10px 18px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    .btn-primary { background: #0070f3; color: white; }
+    .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+    .btn-success { background: #107c41; color: white; }
+    #status { margin-top: 15px; font-weight: bold; }
+    
+    /* 表格樣式 */
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #e1e4e8; padding: 10px; text-align: left; }
+    th { background: #f6f8fa; }
+    td input { width: 95%; padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; }
+    .preview-thumb { width: 60px; height: 60px; object-fit: cover; border-radius: 4px; }
+    .badge-success { color: #107c41; font-weight: bold; }
+    .badge-fail { color: #d73a49; font-weight: bold; }
   </style>
 </head>
 <body>
-  <div class="box">
-    <h2>儀器標籤辨識系統</h2>
-    <input type="file" id="fileInput" accept="image/*">
-    <img id="preview" />
-    <br><br>
-    <button id="uploadBtn" onclick="uploadImage()">開始辨識</button>
+  <div class="card">
+    <h2>🏥 醫療儀器標籤 - 批次辨識系統</h2>
+    <p>支援多張照片同時選取（可按住 Ctrl 或 Shift 連選），系統將自動排隊辨識。</p>
+    
+    <div class="controls">
+      <input type="file" id="fileInput" accept="image/*" multiple>
+      <button id="startBtn" class="btn-primary" onclick="processBatch()">開始批次辨識</button>
+      <button id="exportBtn" class="btn-success" onclick="exportToCSV()" style="display:none;">匯出 Excel (CSV)</button>
+    </div>
+
     <p id="status"></p>
 
-    <div class="field">
-      <label>1. 單位 (輔大+英文)：</label>
-      <input type="text" id="unit">
-    </div>
-    <div class="field">
-      <label>2. 定位器編號 (5位數)：</label>
-      <input type="text" id="locator">
-    </div>
-    <div class="field">
-      <label>3. 院內財產編號 (6位數)：</label>
-      <input type="text" id="property">
-    </div>
+    <table id="resultTable" style="display:none;">
+      <thead>
+        <tr>
+          <th>縮圖</th>
+          <th>檔名</th>
+          <th>單位 (輔大+英文)</th>
+          <th>定位器編號 (5碼)</th>
+          <th>院內財產編號 (6碼)</th>
+          <th>狀態</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
   </div>
 
   <script>
     const fileInput = document.getElementById('fileInput');
-    const preview = document.getElementById('preview');
+    const startBtn = document.getElementById('startBtn');
+    const exportBtn = document.getElementById('exportBtn');
+    const statusText = document.getElementById('status');
+    const resultTable = document.getElementById('resultTable');
+    const tableBody = document.getElementById('tableBody');
 
-    fileInput.onchange = evt => {
-      const [file] = fileInput.files;
-      if (file) {
-        preview.src = URL.createObjectURL(file);
-        preview.style.display = 'block';
+    let fileList = [];
+
+    fileInput.onchange = () => {
+      fileList = Array.from(fileInput.files);
+      if (fileList.length > 0) {
+        statusText.innerText = `已選擇 ${fileList.length} 張照片，請點擊「開始批次辨識」`;
       }
+    };
+
+    // 將檔案轉成 Base64
+    function toBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = error => reject(error);
+      });
     }
 
-    async function uploadImage() {
-      const file = fileInput.files[0];
-      if (!file) return alert('請先選擇圖片');
+    async function processBatch() {
+      if (fileList.length === 0) return alert('請先選擇照片');
 
-      document.getElementById('status').innerText = '辨識中，請稍候...';
+      startBtn.disabled = true;
+      fileInput.disabled = true;
+      resultTable.style.display = 'table';
+      tableBody.innerHTML = '';
 
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onloadend = async () => {
-        const base64data = reader.result;
+      // 初始化表格行
+      fileList.forEach((file, index) => {
+        const row = document.createElement('tr');
+        row.id = `row-${index}`;
+        row.innerHTML = `
+          <td><img class="preview-thumb" src="${URL.createObjectURL(file)}" /></td>
+          <td>${file.name}</td>
+          <td><input type="text" id="unit-${index}" placeholder="等待中..."></td>
+          <td><input type="text" id="locator-${index}" placeholder="等待中..."></td>
+          <td><input type="text" id="property-${index}" placeholder="等待中..."></td>
+          <td id="status-${index}">排隊中</td>
+        `;
+        tableBody.appendChild(row);
+      });
+
+      // 依序辨識每張照片
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        statusText.innerText = `正在辨識第 (${i + 1}/${fileList.length}) 張：${file.name}...`;
+        document.getElementById(`status-${i}`).innerText = '辨識中...';
+
         try {
-          const res = await fetch('/api/ocr', {
+          const base64Data = await toBase64(file);
+          const response = await fetch('/api/ocr', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageBase64: base64data })
+            body: JSON.stringify({ imageBase64: base64Data })
           });
-          const data = await res.json();
-          
+
+          const data = await response.json();
           if (data.error) throw new Error(data.error);
 
-          document.getElementById('unit').value = data.unit || '';
-          document.getElementById('locator').value = data.locator_id || '';
-          document.getElementById('property').value = data.property_id || '';
-          document.getElementById('status').innerText = '辨識完成！';
+          document.getElementById(`unit-${i}`).value = data.unit || '';
+          document.getElementById(`locator-${i}`).value = data.locator_id || '';
+          document.getElementById(`property-${i}`).value = data.property_id || '';
+          document.getElementById(`status-${i}`).innerHTML = '<span class="badge-success">完成</span>';
         } catch (err) {
-          document.getElementById('status').innerText = '辨識失敗：' + err.message;
+          document.getElementById(`status-${i}`).innerHTML = `<span class="badge-fail">失敗</span>`;
         }
-      };
+      }
+
+      statusText.innerText = `全部 ${fileList.length} 張照片辨識完成！可手動修改欄位後點擊匯出。`;
+      startBtn.disabled = false;
+      fileInput.disabled = false;
+      exportBtn.style.display = 'inline-block';
+    }
+
+    // 匯出成 CSV
+    function exportToCSV() {
+      let csvContent = "\uFEFF檔名,單位,定位器編號,院內財產編號\n";
+      
+      fileList.forEach((file, index) => {
+        const unit = document.getElementById(`unit-${index}`).value;
+        const locator = document.getElementById(`locator-${index}`).value;
+        const property = document.getElementById(`property-${index}`).value;
+        csvContent += `"${file.name}","${unit}","${locator}","${property}"\n`;
+      });
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `標籤辨識結果_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
   </script>
 </body>
