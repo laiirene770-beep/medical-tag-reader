@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>輔大醫院設備標籤辨識</title>
+  <style>
+    body { font-family: sans-serif; max-width: 500px; margin: 40px auto; padding: 0 20px; }
+    .box { border: 1px solid #ccc; padding: 20px; border-radius: 8px; }
+    .field { margin: 15px 0; }
+    label { display: block; font-weight: bold; margin-bottom: 5px; }
+    input[type="text"] { width: 100%; padding: 8px; box-sizing: border-box; }
+    button { padding: 10px 20px; background: #0070f3; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    #preview { max-width: 100%; margin-top: 10px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>儀器標籤辨識系統</h2>
+    <input type="file" id="fileInput" accept="image/*">
+    <img id="preview" />
+    <br><br>
+    <button id="uploadBtn" onclick="uploadImage()">開始辨識</button>
+    <p id="status"></p>
+
+    <div class="field">
+      <label>1. 單位 (輔大+英文)：</label>
+      <input type="text" id="unit">
+    </div>
+    <div class="field">
+      <label>2. 定位器編號 (5位數)：</label>
+      <input type="text" id="locator">
+    </div>
+    <div class="field">
+      <label>3. 院內財產編號 (6位數)：</label>
+      <input type="text" id="property">
+    </div>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const preview = document.getElementById('preview');
+
+    fileInput.onchange = evt => {
+      const [file] = fileInput.files;
+      if (file) {
+        preview.src = URL.createObjectURL(file);
+        preview.style.display = 'block';
+      }
+    }
+
+    async function uploadImage() {
+      const file = fileInput.files[0];
+      if (!file) return alert('請先選擇圖片');
+
+      document.getElementById('status').innerText = '辨識中，請稍候...';
+
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onloadend = async () => {
+        const base64data = reader.result;
+        try {
+          const res = await fetch('/api/ocr', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageBase64: base64data })
+          });
+          const data = await res.json();
+          
+          if (data.error) throw new Error(data.error);
+
+          document.getElementById('unit').value = data.unit || '';
+          document.getElementById('locator').value = data.locator_id || '';
+          document.getElementById('property').value = data.property_id || '';
+          document.getElementById('status').innerText = '辨識完成！';
+        } catch (err) {
+          document.getElementById('status').innerText = '辨識失敗：' + err.message;
+        }
+      };
+    }
+  </script>
+</body>
+</html>
